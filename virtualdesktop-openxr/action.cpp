@@ -982,7 +982,8 @@ namespace virtualdesktop_openxr {
                     // Per spec we must consistently pick one source. We pick the first one.
                     break;
                 } else if (getTrackerIndex(fullPath) >= 0) {
-                    state->isActive = isBound ? XR_TRUE : XR_FALSE;
+                    const bool available = !m_usePhysicalTrackers || isPhysicalTrackerActive(getTrackerIndex(fullPath));
+                    state->isActive = (isBound && available) ? XR_TRUE : XR_FALSE;
 
                     // Per spec we must consistently pick one source. We pick the first one.
                     break;

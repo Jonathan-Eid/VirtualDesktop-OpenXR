@@ -574,6 +574,7 @@ echo const char* RuntimeCommitHash = "%commit%"; &gt; $(IntDir)\commit.h
     <ClInclude Include="accessibility.h" />
     <ClInclude Include="OVR_Ext.h" />
     <ClInclude Include="RuntimeConfiguration.h" />
+    <ClInclude Include="external_trackers.h" />
     <ClInclude Include="trackers.h" />
     <ClInclude Include="BodyState.h" />
     <ClInclude Include="framework\dispatch.gen.h" />

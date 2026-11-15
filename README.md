@@ -1,5 +1,9 @@
 # An implementation of the OpenXR 1.0 and 1.1 standard for Virtual Desktop
 
+Experimental fork: [SteamVR-free Vive Tracker 3.0 prototype](tools/physical-trackers/README.md).
+The prototype builds and has produced physical tracker poses through libsurvive;
+Quest alignment and in-app full-body tracking are still under validation.
+
 This program is an implementation of the OpenXR 1.0 and 1.1 standard for Virtual Desktop on Windows. It allows you to run OpenXR applications without SteamVR.
 
 DISCLAIMER: This runtime is not officially conformant per Khronos standards: it cannot be called "conformant" nor use the OpenXR trademark and logo. However, VDXR implements all features in the core OpenXR 1.0 and 1.1 specification and passes the majority of OpenXR conformance tests and the reason for not seeking official conformance is the required adopter fee (several thousand dollars).

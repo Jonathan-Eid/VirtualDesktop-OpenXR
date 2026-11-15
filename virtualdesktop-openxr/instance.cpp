@@ -60,6 +60,17 @@ namespace virtualdesktop_openxr {
         m_useApplicationDeviceForSubmission = getSetting("quirk_use_application_device_for_submission").value_or(false);
 
         // Latch the disabled trackers now.
+        char trackerSource[32]{};
+        GetEnvironmentVariableA("VDXR_TRACKER_SOURCE", trackerSource, sizeof(trackerSource));
+        m_usePhysicalTrackers = std::string(trackerSource) == "libsurvive";
+        if (m_usePhysicalTrackers) Log("Experimental physical tracker source: libsurvive\n");
+        external_trackers::State physicalState;
+        if (m_usePhysicalTrackers && m_physicalTrackers.read(physicalState)) {
+            static_assert(std::size(TrackerRoles) == external_trackers::Roles.size());
+            for (size_t i = 0; i < std::size(TrackerRoles); ++i) {
+                m_physicalTrackerRoles[i] = physicalState.samples[i].configured != 0;
+            }
+        }
         for (uint32_t i = 0; i < std::size(TrackerRoles); i++) {
             m_isTrackerDisabled[i] = getSetting(TrackerRoles[i].role + "_tracker_disabled").value_or(false);
         }
