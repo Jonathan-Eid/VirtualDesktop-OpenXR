@@ -81,6 +81,7 @@ Nightfall's headset PCVR menu saves the 72/90 Hz preference. H.264 and HEVC
 90 Hz synthetic image/pose checks pass, including startup and ring wraparound.
 Physical Quest 2 trials at 1376×1440 per eye reached about 79–81 projection
 copies per second in separate 69–77 second samples, without sustaining 90.
+After a fresh client restart, a 31.5-second sample measured 74.0 copies/sec.
 These are software counters and are not controlled benchmarks. Stable 90 FPS,
 controller calibration/haptics, additional games, non-Intel plugins,
 32-bit builds and longer sessions remain
