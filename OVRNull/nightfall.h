@@ -42,7 +42,7 @@ public:
         if(!provider->context || provider->config.size!=sizeof(provider->config) || provider->config.version!=1 ||
             provider->config.eye_width<256 || provider->config.eye_width>4096 || provider->config.eye_width%16 ||
             provider->config.eye_height<256 || provider->config.eye_height>4096 || provider->config.eye_height%16 ||
-            (provider->config.refresh_hz!=20 && provider->config.refresh_hz!=60 && provider->config.refresh_hz!=72))
+            (provider->config.refresh_hz!=20 && provider->config.refresh_hz!=60 && provider->config.refresh_hz!=72 && provider->config.refresh_hz!=90))
             throw std::runtime_error("Nightfall tracking or backend configuration is unavailable");
         return provider;
     }

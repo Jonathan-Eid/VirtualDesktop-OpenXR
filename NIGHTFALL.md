@@ -75,8 +75,14 @@ copies per second, but longer samples fell to about 41–49. These are software
 copy counters, not physical display or motion-to-photon measurements. Sustained
 performance remains unfinished. A fresh 77.6-second Open Brush session averaged
 66.2 projection copies per second at the same settings.
-The current Nightfall client/protocol caps this backend at 72 Hz; stable 72 FPS,
-90 Hz, controller calibration/haptics, additional games, non-Intel plugins,
-32-bit builds and long sessions remain
+The coordinated Nightfall client, host and bridge now also accept a negotiated
+90 Hz profile; the backend validates that rate before creating the session.
+Nightfall's headset PCVR menu saves the 72/90 Hz preference. H.264 and HEVC
+90 Hz synthetic image/pose checks pass, including startup and ring wraparound.
+Physical Quest 2 trials at 1376×1440 per eye reached about 79–81 projection
+copies per second in separate 69–77 second samples, without sustaining 90.
+These are software counters and are not controlled benchmarks. Stable 90 FPS,
+controller calibration/haptics, additional games, non-Intel plugins,
+32-bit builds and longer sessions remain
 unvalidated. Use Nightfall's GPU measurement wrapper for performance trials;
 the native probe's pixel-reference mode includes CPU rendering/readback/disk I/O.
