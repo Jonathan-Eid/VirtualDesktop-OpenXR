@@ -345,7 +345,7 @@ namespace virtualdesktop_openxr {
             return XR_ERROR_SESSION_NOT_READY;
         }
 
-        m_useAsyncSubmission = !m_isHeadless && !m_useApplicationDeviceForSubmission &&
+        m_useAsyncSubmission = !m_useNightfallRuntime && !m_isHeadless && !m_useApplicationDeviceForSubmission &&
                                !getSetting("quirk_disable_async_submission").value_or(false);
         m_needStartAsyncSubmissionThread = m_useAsyncSubmission;
         // Creation of the submission threads is deferred to the first xrWaitFrame() to accomodate OpenComposite quirks.

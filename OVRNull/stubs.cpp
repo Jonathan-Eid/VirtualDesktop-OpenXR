@@ -225,12 +225,6 @@ OVR_PUBLIC_FUNCTION(ovrBool) ovr_SetFloat(ovrSession session, const char* proper
     return ovrFalse;
 }
 
-OVR_PUBLIC_FUNCTION(unsigned int)
-ovr_GetFloatArray(ovrSession session, const char* propertyName, float values[], unsigned int valuesCapacity) {
-    TraceLoggingWrite(g_traceProvider, "OVR_GetFloatArray_Unsupported", TLArg(propertyName, "Property"));
-    return 0;
-}
-
 OVR_PUBLIC_FUNCTION(ovrBool)
 ovr_SetFloatArray(ovrSession session, const char* propertyName, const float values[], unsigned int valuesSize) {
     TraceLoggingWrite(g_traceProvider, "OVR_SetFloatArray_Unsupported", TLArg(propertyName, "Property"));
@@ -241,11 +235,6 @@ OVR_PUBLIC_FUNCTION(const char*)
 ovr_GetString(ovrSession session, const char* propertyName, const char* defaultVal) {
     TraceLoggingWrite(g_traceProvider, "OVR_GetString_Unsupported", TLArg(propertyName, "Property"));
     return defaultVal;
-}
-
-OVR_PUBLIC_FUNCTION(ovrBool) ovr_SetString(ovrSession session, const char* propertyName, const char* value) {
-    TraceLoggingWrite(g_traceProvider, "OVR_SetString_Unsupported", TLArg(propertyName, "Property"));
-    return ovrFalse;
 }
 
 struct ovrViewportStencilDesc_;

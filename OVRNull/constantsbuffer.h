@@ -39,7 +39,8 @@ ALIGNED(16) struct Rect {
 ALIGNED(16) struct ConstantsBuffer {
     float4x4 reprojectionMatrix;
     Rect imageRectNormalized;
-    bool flipY;
+    unsigned int flipY;
+    unsigned int alphaMode; // 0=premultiplied input, 1=straight alpha, 2=opaque.
 };
 
 #endif

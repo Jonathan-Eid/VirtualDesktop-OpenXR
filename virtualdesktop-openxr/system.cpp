@@ -313,9 +313,19 @@ namespace virtualdesktop_openxr {
 #else
                                       L".\\LibOVRRT32_1.dll";
 #endif
-        m_useOculusRuntime = !IsServiceRunning(L"VirtualDesktop.Server.exe");
+        const bool useNightfall=GetEnvironmentVariableW(L"NIGHTFALL_OVR_BRIDGE",nullptr,0)>0;
+        m_useNightfallRuntime=useNightfall;
+        if(useNightfall && !std::filesystem::is_regular_file(localRuntimePath)){
+            OnceLog("Nightfall requires its local LibOVRRT backend beside this standalone runtime\n");
+            return false;
+        }
+        m_useOculusRuntime = useNightfall || !IsServiceRunning(L"VirtualDesktop.Server.exe");
 #endif
-        if (m_useOculusRuntime && !getSetting("allow_oculus_runtime").value_or(true)) {
+        if (m_useOculusRuntime && !getSetting("allow_oculus_runtime").value_or(true)
+#ifdef STANDALONE_RUNTIME
+            && !useNightfall
+#endif
+        ) {
             // Indicate that Virtual Desktop is required by the current configuration.
             OnceLog("Virtual Desktop Server is not running\n");
             return false;

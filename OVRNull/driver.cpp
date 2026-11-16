@@ -25,10 +25,13 @@
 #include "constantsbuffer.h"
 #include "log.h"
 #include "driver.h"
+#include "nightfall.h"
+#include "../virtualdesktop-openxr/OVR_Ext.h"
 #include "utils.h"
 
 #include "ReprojectVS.h"
 #include "ReprojectPS.h"
+#include "QuadVS.h"
 
 using namespace ovrnull::driver;
 using namespace ovrnull::log;
@@ -77,6 +80,19 @@ namespace {
             m_controllerPose[0].ThePose = OVR::Posef(m_hmdPose.ThePose) * k_HeadToLeftController;
             m_controllerPose[1].ThePose = OVR::Posef(m_hmdPose.ThePose) * k_HeadToRightController;
             m_controllerSides = 0x3;
+            m_nightfall=NightfallProvider::Create();
+            if(m_nightfall){
+                const auto& config=m_nightfall->config;
+                memcpy(&m_adapterLuid,config.adapter_luid,sizeof(LUID));
+                m_displayRate=float(config.refresh_hz);m_photonsTime=1.f/m_displayRate;
+                m_recommendedResolution={int(config.eye_width),int(config.eye_height)};
+                for(unsigned eye=0;eye<2;++eye){
+                    const float* p=config.optics+eye*11;
+                    m_eyePose[eye]=NightfallProvider::Pose(p,0).ThePose;
+                    m_eyeFov[eye]={std::tan(p[9]),-std::tan(p[10]),-std::tan(p[7]),std::tan(p[8])};
+                }
+            }
+
 
             LARGE_INTEGER now{};
             QueryPerformanceCounter(&now);
@@ -115,6 +131,8 @@ namespace {
 
                 winrt::check_hresult(m_submissionDevice->CreateVertexShader(
                     k_ReprojectVS, sizeof(k_ReprojectVS), nullptr, m_reprojectVS.ReleaseAndGetAddressOf()));
+                winrt::check_hresult(m_submissionDevice->CreateVertexShader(
+                    k_QuadVS,sizeof(k_QuadVS),nullptr,m_quadVS.ReleaseAndGetAddressOf()));
                 winrt::check_hresult(m_submissionDevice->CreatePixelShader(
                     k_ReprojectPS, sizeof(k_ReprojectPS), nullptr, m_reprojectPS.ReleaseAndGetAddressOf()));
                 {
@@ -461,13 +479,36 @@ namespace {
             TraceLocalActivity(local);
             TraceLoggingWriteStart(local, "NullDriver_SubmitFrame");
 
-            if (m_mirrorRTV) {
+            if(m_nightfall && !m_streamTexture){
+                D3D11_TEXTURE2D_DESC desc{};
+                desc.Width=m_nightfall->config.eye_width*2;desc.Height=m_nightfall->config.eye_height;
+                desc.ArraySize=desc.MipLevels=desc.SampleDesc.Count=1;
+                desc.Format=DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+                desc.BindFlags=D3D11_BIND_RENDER_TARGET|D3D11_BIND_SHADER_RESOURCE;
+                winrt::check_hresult(m_submissionDevice->CreateTexture2D(&desc,nullptr,&m_streamTexture));
+                winrt::check_hresult(m_submissionDevice->CreateRenderTargetView(m_streamTexture.Get(),nullptr,&m_streamRTV));
+            }
+            auto outputRTV=m_nightfall?m_streamRTV:m_mirrorRTV;
+            const unsigned outputWidth=m_nightfall?m_nightfall->config.eye_width*2:m_mirrorWidth;
+            const unsigned outputHeight=m_nightfall?m_nightfall->config.eye_height:m_mirrorHeight;
+            float streamedViews[22]{};
+            double streamDisplayTime=m_streamDisplayTime>0?m_streamDisplayTime:GetPredictedDisplayTime(m_lastWaitedFrame);
+            if(m_nightfall){
+                const auto head=OVR::Posef(GetHmdPose(0).ThePose);
+                for(unsigned eye=0;eye<2;++eye){
+                    const ovrPosef pose=head*OVR::Posef(m_eyePose[eye]);
+                    memcpy(streamedViews+eye*11,&pose.Position,3*sizeof(float));
+                    memcpy(streamedViews+eye*11+3,&pose.Orientation,4*sizeof(float));
+                    memcpy(streamedViews+eye*11+7,m_nightfall->config.optics+eye*11+7,4*sizeof(float));
+                }
+            }
+            if (outputRTV) {
                 const float clearColor[] = {0.f, 0.f, 0.f, 1.f};
-                m_submissionContext->ClearRenderTargetView(m_mirrorRTV.Get(), clearColor);
+                m_submissionContext->ClearRenderTargetView(outputRTV.Get(), clearColor);
             }
 
             m_submissionContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-            m_submissionContext->OMSetRenderTargets(1, m_mirrorRTV.GetAddressOf(), nullptr);
+            m_submissionContext->OMSetRenderTargets(1, outputRTV.GetAddressOf(), nullptr);
             m_submissionContext->VSSetConstantBuffers(0, 1, m_constantsBuffer.GetAddressOf());
             m_submissionContext->PSSetSamplers(0, 1, m_linearSampler.GetAddressOf());
             m_submissionContext->PSSetConstantBuffers(0, 1, m_constantsBuffer.GetAddressOf());
@@ -501,11 +542,18 @@ namespace {
                                       offsetof(decltype(layer->EyeFovDepth), SensorSampleTime));
 
                         const auto eyeFov = &layer->EyeFov;
+                        if(eyeFov->SensorSampleTime>0)streamDisplayTime=eyeFov->SensorSampleTime;
+                        if(m_nightfall)for(unsigned eye=0;eye<2;++eye){
+                            memcpy(streamedViews+eye*11,&eyeFov->RenderPose[eye].Position,3*sizeof(float));
+                            memcpy(streamedViews+eye*11+3,&eyeFov->RenderPose[eye].Orientation,4*sizeof(float));
+                        }
+
 
                         m_submissionContext->VSSetShader(m_reprojectVS.Get(), nullptr, 0);
 
                         ConstantsBuffer constants{};
                         constants.flipY = layer->Header.Flags & ovrLayerFlag_TextureOriginAtBottomLeft;
+                        constants.alphaMode=!m_nightfall?1:(layer->Header.Flags&ovrLayerFlag_NightfallIgnoreAlpha)?2:(layer->Header.Flags&ovrLayerFlag_NightfallUnpremultiplied)?1:0;
                         for (uint32_t eye = 0; eye < ovrEye_Count; eye++) {
                             const auto baseProjection = LoadOvrProjection(m_eyeFov[eye], 0.01f, 1000.f);
                             const auto projection = LoadOvrProjection(eyeFov->Fov[eye], 0.01f, 1000.f);
@@ -539,25 +587,54 @@ namespace {
                             m_submissionContext->Unmap(m_constantsBuffer.Get(), 0);
 
                             D3D11_VIEWPORT viewport{};
-                            viewport.Width = m_mirrorWidth / 2.f;
+                            viewport.Width = outputWidth / 2.f;
                             viewport.TopLeftX = eye * viewport.Width;
-                            viewport.Height = (float)m_mirrorHeight;
+                            viewport.Height = (float)outputHeight;
                             viewport.MaxDepth = 1.f;
                             m_submissionContext->RSSetViewports(1, &viewport);
                             m_submissionContext->PSSetShaderResources(
                                 0, 1, swapchainObject->SRVs[swapchainObject->lastCommittedIndex].GetAddressOf());
 
-                            if (m_mirrorRTV) {
+                            if (outputRTV) {
                                 m_submissionContext->Draw(3, 0);
                             }
                         }
 
                     } else if (layer->Header.Type == ovrLayerType_Quad) {
-                        // TODO: Compose quad layers to mirror.
+                        const auto& quad=layer->Quad;
+                        if(!m_swapchains.count(quad.ColorTexture))return false;
+                        auto* swapchain=reinterpret_cast<Swapchain*>(quad.ColorTexture);
+                        m_submissionContext->VSSetShader(m_quadVS.Get(),nullptr,0);
+                        ConstantsBuffer constants{};
+                        constants.flipY=layer->Header.Flags & ovrLayerFlag_TextureOriginAtBottomLeft;
+                        constants.alphaMode=!m_nightfall?1:(layer->Header.Flags&ovrLayerFlag_NightfallIgnoreAlpha)?2:(layer->Header.Flags&ovrLayerFlag_NightfallUnpremultiplied)?1:0;
+                        constants.imageRectNormalized.offset={float(quad.Viewport.Pos.x)/swapchain->desc.Width,float(quad.Viewport.Pos.y)/swapchain->desc.Height};
+                        constants.imageRectNormalized.extent={float(quad.Viewport.Size.w)/swapchain->desc.Width,float(quad.Viewport.Size.h)/swapchain->desc.Height};
+                        ovrPosef worldPose=quad.QuadPoseCenter;
+                        if(layer->Header.Flags & ovrLayerFlag_HeadLocked)worldPose=OVR::Posef(GetHmdPose(0).ThePose)*OVR::Posef(worldPose);
+                        for(unsigned eye=0;eye<2;++eye){
+                            if((eye==0 && (layer->Header.Flags&ovrLayerFlag_DisableLeft)) || (eye==1 && (layer->Header.Flags&ovrLayerFlag_DisableRight)))continue;
+                            ovrPosef eyePose{};
+                            if(m_nightfall){
+                                memcpy(&eyePose.Position,streamedViews+eye*11,3*sizeof(float));
+                                memcpy(&eyePose.Orientation,streamedViews+eye*11+3,4*sizeof(float));
+                            }else{eyePose=OVR::Posef(GetHmdPose(0).ThePose)*OVR::Posef(m_eyePose[eye]);}
+                            auto matrix=DirectX::XMMatrixScaling(quad.QuadSize.x*.5f,quad.QuadSize.y*.5f,1)*LoadOvrPose(worldPose)*
+                                LoadInvertedOvrPose(eyePose)*DirectX::XMMatrixTranspose(LoadOvrProjection(m_eyeFov[eye],.01f,1000.f));
+                            DirectX::XMStoreFloat4x4(&constants.reprojectionMatrix,DirectX::XMMatrixTranspose(matrix));
+                            D3D11_MAPPED_SUBRESOURCE mapped{};
+                            winrt::check_hresult(m_submissionContext->Map(m_constantsBuffer.Get(),0,D3D11_MAP_WRITE_DISCARD,0,&mapped));
+                            memcpy(mapped.pData,&constants,sizeof(constants));m_submissionContext->Unmap(m_constantsBuffer.Get(),0);
+                            D3D11_VIEWPORT viewport{float(eye*outputWidth/2),0,float(outputWidth/2),float(outputHeight),0,1};
+                            m_submissionContext->RSSetViewports(1,&viewport);
+                            m_submissionContext->PSSetShaderResources(0,1,swapchain->SRVs[swapchain->lastCommittedIndex].GetAddressOf());
+                            if(outputRTV)m_submissionContext->Draw(6,0);
+                        }
                     } else if (layer->Header.Type == ovrLayerType_Disabled) {
                         // Nothing to do here.
                     } else {
-                        // This type of layer (eg: cylinder, cube) is not supported. Skip it.
+                        // This type of layer (eg: cylinder, cube) is not supported.
+                        if(m_nightfall)return false;
                     }
                 }
             }
@@ -570,6 +647,14 @@ namespace {
                 m_submissionContext->PSSetShaderResources(0, 1, nullSRV);
             }
 
+            if(m_nightfall){
+                if(!m_useStageTracking)for(unsigned eye=0;eye<2;++eye)streamedViews[eye*11+1]+=OVR_DEFAULT_EYE_HEIGHT;
+                m_submissionContext->Flush();
+                if(!m_nightfall->Submit(m_submissionDevice.Get(),m_streamTexture.Get(),m_streamFrame,
+                    streamDisplayTime,streamedViews))return false;
+                ++m_streamFrame;
+                return true;
+            }
             ProcessActionKeys();
 
             // "Maintain" the pose time.
@@ -658,11 +743,11 @@ namespace {
         }
 
         std::string GetManufacturerName() const override {
-            return "Virtual Desktop";
+            return m_nightfall?"Nightfall":"Virtual Desktop";
         }
 
         std::string GetModelNumber() const override {
-            return "Emulated Device";
+            return m_nightfall?"Nightfall Quest (experimental)":"Emulated Device";
         }
 
         LUID GetAdapterLuid() const override {
@@ -702,7 +787,10 @@ namespace {
             return false;
         }
 
+        void SetFrameDisplayTime(double time) override {m_streamDisplayTime=time;}
+        bool IsConnected() const override {return !m_nightfall || m_nightfall->Sample(0).connected!=0;}
         ovrPoseStatef GetHmdPose(double absTime) const override {
+            if(m_nightfall){const auto state=m_nightfall->Sample(absTime);auto pose=state.head_valid?NightfallProvider::Pose(state.head,state.sample_ns/1e9):ovrPoseStatef{};if(!m_useStageTracking)pose.ThePose.Position.y-=OVR_DEFAULT_EYE_HEIGHT;return pose;}
             ovrPoseStatef latched;
             {
                 std::shared_lock lock(m_hmdPoseMutex);
@@ -712,11 +800,13 @@ namespace {
         }
 
         bool HasController(ovrHandType side) const override {
+            if(m_nightfall)return (m_nightfall->Sample(0).flags[side]&1)!=0;
             std::shared_lock lock(m_controllerMutex);
             return m_controllerSides & (1 << side);
         }
 
         ovrPoseStatef GetControllerPose(ovrHandType side, double absTime) const override {
+            if(m_nightfall){const auto state=m_nightfall->Sample(absTime);auto pose=state.flags[side]&1?NightfallProvider::Pose(state.hands[side],state.sample_ns/1e9):ovrPoseStatef{};if(!m_useStageTracking)pose.ThePose.Position.y-=OVR_DEFAULT_EYE_HEIGHT;return pose;}
             ovrPoseStatef latched;
             {
                 std::shared_lock lock(m_controllerMutex);
@@ -726,6 +816,28 @@ namespace {
         }
 
         ovrInputState GetControllerButtons() const override {
+            if(m_nightfall){
+                const auto state=m_nightfall->Sample(0);ovrInputState buttons{};
+                buttons.TimeInSeconds=state.sample_ns/1e9;
+                for(unsigned side=0;side<2;++side){
+                    if(!(state.flags[side]&1))continue;
+                    buttons.ControllerType=ovrControllerType(unsigned(buttons.ControllerType)|(side?ovrControllerType_RTouch:ovrControllerType_LTouch));
+                    const auto bits=state.buttons[side];
+                    const unsigned primary=side?ovrButton_A:ovrButton_X,secondary=side?ovrButton_B:ovrButton_Y;
+                    const unsigned stick=side?ovrButton_RThumb:ovrButton_LThumb;
+                    if(bits&1)buttons.Buttons|=primary;if(bits&2)buttons.Buttons|=stick;if(bits&32)buttons.Buttons|=secondary;
+                    if(bits&4)buttons.Touches|=side?ovrTouch_A:ovrTouch_X;
+                    if(bits&8)buttons.Touches|=side?ovrTouch_RThumb:ovrTouch_LThumb;
+                    if(bits&16)buttons.Touches|=side?ovrTouch_RIndexTrigger:ovrTouch_LIndexTrigger;
+                    if(bits&64)buttons.Touches|=side?ovrTouch_B:ovrTouch_Y;
+                    if(state.flags[side]&4){
+                        buttons.IndexTriggerRaw[side]=buttons.IndexTriggerNoDeadzone[side]=buttons.IndexTrigger[side]=state.controls[side][0];
+                        buttons.HandTriggerRaw[side]=buttons.HandTriggerNoDeadzone[side]=buttons.HandTrigger[side]=state.controls[side][1];
+                    }
+                    if(state.flags[side]&8)buttons.ThumbstickRaw[side]=buttons.ThumbstickNoDeadzone[side]=buttons.Thumbstick[side]={state.controls[side][2],state.controls[side][3]};
+                }
+                return buttons;
+            }
             ovrInputState inputState = m_controllerButtons;
             for (uint32_t side = 0; side < ovrHand_Count; side++) {
                 inputState.IndexTrigger[side] = inputState.IndexTriggerNoDeadzone[side] =
@@ -736,11 +848,25 @@ namespace {
             return inputState;
         }
 
+        bool GetControllerAimPose(ovrHandType side,double absTime,ovrPoseStatef& pose) const override {
+            if(!m_nightfall)return false;
+            const auto state=m_nightfall->Sample(absTime);
+            if(!(state.flags[side]&2))return false;
+            pose=NightfallProvider::Pose(state.hands[side]+7,state.sample_ns/1e9);
+            if(!m_useStageTracking)pose.ThePose.Position.y-=OVR_DEFAULT_EYE_HEIGHT;
+            return true;
+        }
+
         void SetControllerVibration(ovrHandType side, float frequency, float amplitude) {
-            // Just a placeholder for now.
+            if(m_nightfall)m_nightfall->Haptic(side,amplitude);
         }
 
       private:
+        std::unique_ptr<NightfallProvider> m_nightfall;
+        ComPtr<ID3D11Texture2D> m_streamTexture;
+        ComPtr<ID3D11RenderTargetView> m_streamRTV;
+        uint64_t m_streamFrame=0;
+        double m_streamDisplayTime=0;
         std::thread m_serverThread;
         std::atomic<bool> m_terminateServerThread = false;
 
@@ -748,6 +874,7 @@ namespace {
         ComPtr<ID3D11Device> m_submissionDevice;
         ComPtr<ID3D11DeviceContext> m_submissionContext;
         ComPtr<ID3D11VertexShader> m_reprojectVS;
+        ComPtr<ID3D11VertexShader> m_quadVS;
         ComPtr<ID3D11PixelShader> m_reprojectPS;
         ComPtr<ID3D11Buffer> m_constantsBuffer;
         ComPtr<ID3D11DepthStencilState> m_noDepthTestState;
@@ -777,7 +904,9 @@ namespace {
 
         mutable std::mutex m_frameMutex;
         long long m_lastSignaledVsync{};
-        long long m_lastWaitedFrame{};
+        // Frame zero must wait for the first fresh vsync too. Runtime/session
+        // startup can take longer than the tracking sample's freshness window.
+        long long m_lastWaitedFrame{-1};
         double m_nextFramePredictedDisplayTime{0.0};
         std::condition_variable m_frameVsync;
     };

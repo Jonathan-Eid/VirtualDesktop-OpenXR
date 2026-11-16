@@ -692,7 +692,17 @@ namespace virtualdesktop_openxr {
                             result = getControllerPose(side, time, pose, velocity);
 
                             // Apply the pose offsets.
-                            if (isAimPose) {
+                            if(m_useNightfallRuntime && isAimPose){
+                                float aim[7]{};
+                                if(ovr_GetFloatArray(m_ovrSession,side==0?"NightfallControllerAimLeft":"NightfallControllerAimRight",aim,7)==7){
+                                    pose.position={aim[0],aim[1],aim[2]};pose.orientation={aim[3],aim[4],aim[5],aim[6]};
+                                    pose=Pose::Multiply(m_controllerAimOffset,pose);
+                                }else{result=0;}
+                            }else if(m_useNightfallRuntime && isGripPose){
+                                // Nightfall already supplies OpenXR grip/aim poses, rather
+                                // than the vendor's raw Touch origin used by LibOVR.
+                                pose=Pose::Multiply(m_controllerGripOffset,pose);
+                            }else if (isAimPose) {
                                 // Try using the hand tracking first.
                                 if (!(m_supportsHandTracking && getPinchPose(side, pose, pose))) {
                                     pose = Pose::Multiply(m_controllerAimPose[side], pose);

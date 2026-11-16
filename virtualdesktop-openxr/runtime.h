@@ -647,6 +647,7 @@ namespace virtualdesktop_openxr {
         uint32_t m_apiMinor{0};
         bool m_isOVRLoaded{false};
         bool m_useOculusRuntime{false};
+        bool m_useNightfallRuntime{false};
         wil::unique_hmodule m_OVRlay;
         ovrSession m_ovrSession{nullptr};
         bool m_instanceCreated{false};

@@ -8,3 +8,4 @@ bin/
 *.vcxproj.user
 *.csproj.user
 virtualdesktop-openxr/commit.h
+/build-tools/

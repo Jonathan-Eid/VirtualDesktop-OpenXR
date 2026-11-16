@@ -66,7 +66,13 @@ OVR_PUBLIC_FUNCTION(int) ovr_TraceMessage(int level, const char* message) {
 }
 
 OVR_PUBLIC_FUNCTION(ovrResult) ovr_Create(ovrSession* pSession, ovrGraphicsLuid* pLuid) {
-    IDriver* const interop = CreateDriver();
+    if(!pSession || !pLuid)return OvrResultWrapper(ovrError_InvalidParameter);
+    *pSession=nullptr;
+    IDriver* interop=nullptr;
+    try{interop=CreateDriver();}catch(const std::exception& e){
+        TraceLoggingWrite(g_traceProvider,"OVR_Create_Failed",TLArg(e.what(),"Error"));
+        return OvrResultWrapper(ovrError_NoHmd);
+    }
 
     const LUID adapterLuid = interop->GetAdapterLuid();
     memcpy(pLuid, &adapterLuid, sizeof(LUID));
@@ -148,15 +154,16 @@ ovr_GetFovStencil(ovrSession session, const ovrFovStencilDesc* fovStencilDesc, o
 OVR_PUBLIC_FUNCTION(ovrResult)
 ovr_GetSessionStatus(ovrSession session, ovrSessionStatus* sessionStatus) {
     DECLARE_INTEROP(interop);
-    sessionStatus->IsVisible = true;
-    sessionStatus->HmdPresent = true;
-    sessionStatus->HmdMounted = true;
-    sessionStatus->DisplayLost = false;
+    const bool connected=interop->IsConnected();
+    sessionStatus->IsVisible = connected;
+    sessionStatus->HmdPresent = connected;
+    sessionStatus->HmdMounted = connected;
+    sessionStatus->DisplayLost = !connected;
     sessionStatus->ShouldQuit = false;
     sessionStatus->ShouldRecenter = false;
-    sessionStatus->HasInputFocus = true;
+    sessionStatus->HasInputFocus = connected;
     sessionStatus->OverlayPresent = false;
-    sessionStatus->DepthRequested = true;
+    sessionStatus->DepthRequested = false;
     return OvrResultWrapper(ovrSuccess);
 }
 
@@ -204,20 +211,23 @@ ovr_GetDevicePoses(ovrSession session,
                    double absTime,
                    ovrPoseStatef* outDevicePoses) {
     DECLARE_INTEROP(interop);
+    if(!interop->IsConnected())return OvrResultWrapper(ovrError_DeviceUnavailable);
     for (int i = 0; i < deviceCount; i++) {
         switch (deviceTypes[i]) {
         case ovrTrackedDevice_HMD:
-            *outDevicePoses = interop->GetHmdPose(absTime);
+            outDevicePoses[i] = interop->GetHmdPose(absTime);
             break;
         case ovrTrackedDevice_LTouch:
-            *outDevicePoses = interop->GetControllerPose(ovrHand_Left, absTime);
+            outDevicePoses[i] = interop->GetControllerPose(ovrHand_Left, absTime);
             break;
         case ovrTrackedDevice_RTouch:
-            *outDevicePoses = interop->GetControllerPose(ovrHand_Right, absTime);
+            outDevicePoses[i] = interop->GetControllerPose(ovrHand_Right, absTime);
             break;
         default:
             return OvrResultWrapper(ovrError_DeviceUnavailable);
         }
+        const auto& q=outDevicePoses[i].ThePose.Orientation;
+        if(q.x*q.x+q.y*q.y+q.z*q.z+q.w*q.w<0.5f)return OvrResultWrapper(ovrError_DeviceUnavailable);
     }
     return OvrResultWrapper(ovrSuccess);
 }
@@ -244,13 +254,30 @@ OVR_PUBLIC_FUNCTION(unsigned int) ovr_GetConnectedControllerTypes(ovrSession ses
     return types;
 }
 
+OVR_PUBLIC_FUNCTION(unsigned int)
+ovr_GetFloatArray(ovrSession session,const char* name,float values[],unsigned int capacity){
+    if(!session || !name || !values || capacity<7)return 0;
+    const std::string_view key=name;
+    if(key!="NightfallControllerAimLeft" && key!="NightfallControllerAimRight")return 0;
+    DECLARE_INTEROP(interop);
+    ovrPoseStatef pose{};
+    if(!interop->GetControllerAimPose(key=="NightfallControllerAimLeft"?ovrHand_Left:ovrHand_Right,0,pose))return 0;
+    memcpy(values,&pose.ThePose.Position,3*sizeof(float));memcpy(values+3,&pose.ThePose.Orientation,4*sizeof(float));
+    return 7;
+}
+
+OVR_PUBLIC_FUNCTION(ovrBool) ovr_SetString(ovrSession session,const char* name,const char* value){
+    if(!session || !name || !value || std::string_view(name)!="NightfallDisplayTime")return ovrFalse;
+    char* end=nullptr;const double time=strtod(value,&end);
+    if(!end || *end || !std::isfinite(time) || time<=0)return ovrFalse;
+    DECLARE_INTEROP(interop);interop->SetFrameDisplayTime(time);return ovrTrue;
+}
+
 OVR_PUBLIC_FUNCTION(ovrResult)
 ovr_SetControllerVibration(ovrSession session, ovrControllerType controllerType, float frequency, float amplitude) {
     DECLARE_INTEROP(interop);
-    if (controllerType & ovrControllerType_Touch) {
-        interop->SetControllerVibration(
-            (controllerType == ovrControllerType_LTouch) ? ovrHand_Left : ovrHand_Right, frequency, amplitude);
-    }
+    if(controllerType & ovrControllerType_LTouch)interop->SetControllerVibration(ovrHand_Left,frequency,amplitude);
+    if(controllerType & ovrControllerType_RTouch)interop->SetControllerVibration(ovrHand_Right,frequency,amplitude);
     return OvrResultWrapper(ovrSuccess);
 }
 

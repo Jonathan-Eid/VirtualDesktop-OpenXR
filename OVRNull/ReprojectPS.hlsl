@@ -45,5 +45,6 @@ float4 main(in float4 position : SV_Position, in float3 reprojectedCoord : TEXCO
 
     float4 color = sourceColor.SampleLevel(linearSampler, realTexCoord, 0);
 
-    return PreMultiplyAlpha(color);
+    if(cb.alphaMode==2)color.a=1;
+    return cb.alphaMode==1 ? PreMultiplyAlpha(color) : color;
 }

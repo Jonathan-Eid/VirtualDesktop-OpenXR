@@ -54,11 +54,14 @@ namespace ovrnull::driver {
         virtual bool IsStageTracking() const = 0;
         virtual float GetEyeHeight() const = 0;
         virtual bool IsAswActive() const = 0;
+        virtual bool IsConnected() const { return true; }
+        virtual void SetFrameDisplayTime(double) {}
 
         virtual ovrPoseStatef GetHmdPose(double absTime) const = 0;
 
         virtual bool HasController(ovrHandType side) const = 0;
         virtual ovrPoseStatef GetControllerPose(ovrHandType side, double absTime) const = 0;
+        virtual bool GetControllerAimPose(ovrHandType,double,ovrPoseStatef&) const {return false;}
         virtual ovrInputState GetControllerButtons() const = 0;
         virtual void SetControllerVibration(ovrHandType side, float frequency, float amplitude) = 0;
     };

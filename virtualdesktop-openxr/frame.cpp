@@ -539,6 +539,10 @@ namespace virtualdesktop_openxr {
                 scaleDesc.HmdToEyePose[xr::StereoView::Left] = m_cachedEyeInfo[xr::StereoView::Left].HmdToEyePose;
                 scaleDesc.HmdToEyePose[xr::StereoView::Right] = m_cachedEyeInfo[xr::StereoView::Right].HmdToEyePose;
                 scaleDesc.HmdSpaceToWorldScaleInMeters = 1.f;
+                if(m_useNightfallRuntime){
+                    const auto time=fmt::format("{:.9f}",xrTimeToOvrTime(m_precompositor.displayTime));
+                    CHECK_MSG(ovr_SetString(m_ovrSession,"NightfallDisplayTime",time.c_str()),"Nightfall frame timestamp was rejected");
+                }
                 CHECK_OVRCMD(
                     ovr_EndFrame(m_ovrSession, ovrFrameId, &scaleDesc, layers.data(), (unsigned int)layers.size()));
                 TraceLoggingWriteStop(endFrame, "OVR_EndFrame");
@@ -619,6 +623,10 @@ namespace virtualdesktop_openxr {
 
         // Start without depth. We might change the type to ovrLayerType_EyeFovDepth further below.
         layer.Header.Type = ovrLayerType_EyeFov;
+        if(m_useNightfallRuntime){
+            if(proj.layerFlags & XR_COMPOSITION_LAYER_UNPREMULTIPLIED_ALPHA_BIT)layer.Header.Flags|=ovrLayerFlag_NightfallUnpremultiplied;
+            if(!(proj.layerFlags & XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT))layer.Header.Flags|=ovrLayerFlag_NightfallIgnoreAlpha;
+        }
 
         Swapchain* swapchains[xr::StereoView::Count] = {};
         const XrSwapchainSubImage* subImages[xr::StereoView::Count] = {};
@@ -840,6 +848,10 @@ namespace virtualdesktop_openxr {
                       offsetof(decltype(layer.Cylinder), CylinderPoseCenter));
 
         layer.Header.Type = isCylinder ? ovrLayerType_Cylinder : ovrLayerType_Quad;
+        if(m_useNightfallRuntime){
+            if(quad.layerFlags & XR_COMPOSITION_LAYER_UNPREMULTIPLIED_ALPHA_BIT)layer.Header.Flags|=ovrLayerFlag_NightfallUnpremultiplied;
+            if(!(quad.layerFlags & XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT))layer.Header.Flags|=ovrLayerFlag_NightfallIgnoreAlpha;
+        }
 
         if (!Quaternion::IsNormalized(quad.pose.orientation)) {
             return XR_ERROR_POSE_INVALID;
@@ -856,7 +868,7 @@ namespace virtualdesktop_openxr {
         }
 
         if (quad.eyeVisibility != XR_EYE_VISIBILITY_BOTH) {
-            if (!m_useOculusRuntime) {
+            if (!m_useOculusRuntime || m_useNightfallRuntime) {
                 if (quad.eyeVisibility == XR_EYE_VISIBILITY_LEFT) {
                     layer.Header.Flags |= ovrLayerFlag_DisableRight;
                 } else if (quad.eyeVisibility == XR_EYE_VISIBILITY_RIGHT) {
@@ -1000,6 +1012,9 @@ namespace virtualdesktop_openxr {
                                                  uint32_t slice,
                                                  XrCompositionLayerFlags compositionFlags,
                                                  XrRect2Di viewport) {
+        // Nightfall handles alpha in its compositor shader. Mutating a shared
+        // texture here would premultiply it again for each submitted layer.
+        if(m_useNightfallRuntime)return;
         if (!xrSwapchain.dirty) {
             return;
         }
