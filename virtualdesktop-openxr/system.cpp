@@ -424,6 +424,12 @@ namespace virtualdesktop_openxr {
     }
 
     void OpenXrRuntime::enterVisibleMode() {
+        // Nightfall's authenticated relay owns visibility and tracking. Unity
+        // enables MND_headless even for a graphics session; recreating OVR here
+        // closes the live tracking lane before the first submitted frame.
+        if (m_useNightfallRuntime) {
+            return;
+        }
         ovrInitParams initParams{};
         initParams.Flags = ovrInit_RequestVersion | ovrInit_FocusAware;
         initParams.RequestedMinorVersion = OVR_MINOR_VERSION;

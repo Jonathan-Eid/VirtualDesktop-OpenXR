@@ -51,6 +51,14 @@ namespace virtualdesktop_openxr {
         // sufficient to guarantee tha an HMD is active, and therefore the audio device is properly selected. Instead,
         // it should take an XrSystemId. Unfortunately there is no good solution, the best effort below is to try to
         // attach to the HMD, and if it's actually here, the query for audio device will succeed further below.
+#ifdef STANDALONE_RUNTIME
+        // Unity probes audio with a short-lived XR instance before its real
+        // session. Nightfall has no OVR audio-device GUID provider; opening
+        // its one tracking lane here consumes it during that discarded probe.
+        if (GetEnvironmentVariableW(L"NIGHTFALL_OVR_BRIDGE", nullptr, 0) > 0) {
+            return XR_ERROR_FEATURE_UNSUPPORTED;
+        }
+#endif
         ensureOVRSession();
 
         const ovrResult result = ovr_GetAudioDeviceOutGuidStr(buffer);
@@ -80,6 +88,11 @@ namespace virtualdesktop_openxr {
         // sufficient to guarantee tha an HMD is active, and therefore the audio device is properly selected. Instead,
         // it should take an XrSystemId. Unfortunately there is no good solution, the best effort below is to try to
         // attach to the HMD, and if it's actually here, the query for audio device will succeed further below.
+#ifdef STANDALONE_RUNTIME
+        if (GetEnvironmentVariableW(L"NIGHTFALL_OVR_BRIDGE", nullptr, 0) > 0) {
+            return XR_ERROR_FEATURE_UNSUPPORTED;
+        }
+#endif
         ensureOVRSession();
 
         const ovrResult result = ovr_GetAudioDeviceInGuidStr(buffer);

@@ -148,6 +148,7 @@ namespace virtualdesktop_openxr {
 
             if (m_needStartAsyncSubmissionThread) {
                 m_terminateAsyncThread = false;
+                m_asyncSubmissionReady = false;
                 m_asyncSubmissionThread = std::thread([&]() { asyncSubmissionThread(); });
                 m_needStartAsyncSubmissionThread = false;
             }
@@ -162,7 +163,7 @@ namespace virtualdesktop_openxr {
                 lock.lock();
                 TraceLoggingWriteStop(waitToBeginFrame, "OVR_WaitToBeginFrame");
             } else {
-                if (!m_useDeferredFrameWait) {
+                if (!m_useDeferredFrameWait || (m_useNightfallRuntime && m_frameWaited == 0)) {
                     waitForAsyncSubmissionIdle(m_useRunningStart);
                 }
                 TraceLoggingWrite(g_traceProvider, "AcquiredFrame", TLArg(ovrFrameId, "FrameId"));
@@ -337,6 +338,7 @@ namespace virtualdesktop_openxr {
 
     // https://www.khronos.org/registry/OpenXR/specs/1.0/html/xrspec.html#xrEndFrame
     XrResult OpenXrRuntime::xrEndFrame(XrSession session, const XrFrameEndInfo* frameEndInfo) {
+        const double nightfallEndStart=m_useNightfallRuntime?ovr_GetTimeInSeconds():0;
         if (frameEndInfo->type != XR_TYPE_FRAME_END_INFO) {
             return XR_ERROR_VALIDATION_FAILURE;
         }
@@ -387,6 +389,13 @@ namespace virtualdesktop_openxr {
 
             // Make sure the previous frame finished submission.
             if (m_useAsyncSubmission) {
+                // D3D11 applications can leave this frame's rendering buffered
+                // until Present (after xrEndFrame). Submit those commands before
+                // waiting for the previous encode so the two engines can overlap.
+                // This touches only the application context, not the worker's.
+                if (m_useNightfallRuntime && !isD3D12Session() && !isVulkanSession() && !isOpenGLSession()) {
+                    m_d3d11Context->Flush();
+                }
                 waitForAsyncSubmissionIdle();
 
                 // From this point, we know that the asynchronous thread is waiting, and we may use the submission
@@ -543,8 +552,14 @@ namespace virtualdesktop_openxr {
                     const auto time=fmt::format("{:.9f}",xrTimeToOvrTime(m_precompositor.displayTime));
                     CHECK_MSG(ovr_SetString(m_ovrSession,"NightfallDisplayTime",time.c_str()),"Nightfall frame timestamp was rejected");
                 }
+                const double nightfallSubmitStart=m_useNightfallRuntime?ovr_GetTimeInSeconds():0;
                 CHECK_OVRCMD(
                     ovr_EndFrame(m_ovrSession, ovrFrameId, &scaleDesc, layers.data(), (unsigned int)layers.size()));
+                if(m_useNightfallRuntime && ovrFrameId%72==0){
+                    std::fprintf(stderr,"NIGHTFALL_FRAME_TIMING frame=%lld compose_us=%.0f submit_us=%.0f previous_app_cpu_us=%llu\n",
+                        ovrFrameId,(nightfallSubmitStart-nightfallEndStart)*1e6,(ovr_GetTimeInSeconds()-nightfallSubmitStart)*1e6,
+                        (unsigned long long)m_lastCpuFrameTimeUs);std::fflush(stderr);
+                }
                 TraceLoggingWriteStop(endFrame, "OVR_EndFrame");
             }
 
@@ -587,6 +602,10 @@ namespace virtualdesktop_openxr {
             m_currentTimerIndex = (m_currentTimerIndex + 1) % k_numGpuTimers;
 
             m_sessionTotalFrameCount++;
+            if(m_useNightfallRuntime && ovrFrameId%72==0){
+                std::fprintf(stderr,"NIGHTFALL_APP_TIMING frame=%lld cpu_us=%llu gpu_us=%llu\n",ovrFrameId,
+                    (unsigned long long)m_lastCpuFrameTimeUs,(unsigned long long)m_lastGpuFrameTimeUs);std::fflush(stderr);
+            }
 
             // Signal xrBeginFrame().
             TraceLoggingWrite(g_traceProvider,
@@ -1137,8 +1156,6 @@ namespace virtualdesktop_openxr {
                     CHECK_OVRCMD(result);
                 }
             }
-            m_lastWaitToBeginFrameTime = std::chrono::high_resolution_clock::now();
-
             {
                 TraceLocalActivity(beginFrame);
                 TraceLoggingWriteStart(beginFrame, "OVR_BeginFrame", TLArg(ovrFrameId, "FrameId"));
@@ -1150,6 +1167,8 @@ namespace virtualdesktop_openxr {
                 std::unique_lock lock(m_asyncSubmissionMutex);
 
                 // Mark us as ready to accept a new frame.
+                m_lastWaitToBeginFrameTime = std::chrono::high_resolution_clock::now();
+                m_asyncSubmissionReady = true;
                 m_layersForAsyncSubmission.clear();
                 m_asyncSubmissionCondVar.notify_all();
 
@@ -1179,8 +1198,19 @@ namespace virtualdesktop_openxr {
                 scaleDesc.HmdToEyePose[xr::StereoView::Left] = m_cachedEyeInfo[xr::StereoView::Left].HmdToEyePose;
                 scaleDesc.HmdToEyePose[xr::StereoView::Right] = m_cachedEyeInfo[xr::StereoView::Right].HmdToEyePose;
                 scaleDesc.HmdSpaceToWorldScaleInMeters = 1.f;
+                // xrEndFrame waits for this worker to become idle before changing
+                // m_precompositor again, so this timestamp belongs to these layers.
+                if(m_useNightfallRuntime){
+                    const auto time=fmt::format("{:.9f}",xrTimeToOvrTime(m_precompositor.displayTime));
+                    CHECK_MSG(ovr_SetString(m_ovrSession,"NightfallDisplayTime",time.c_str()),"Nightfall frame timestamp was rejected");
+                }
+                const double nightfallWorkerStart=m_useNightfallRuntime?ovr_GetTimeInSeconds():0;
                 CHECK_OVRCMD(
                     ovr_EndFrame(m_ovrSession, ovrFrameId, &scaleDesc, layers.data(), (unsigned int)layers.size()));
+                if(m_useNightfallRuntime && ovrFrameId%72==0){
+                    std::fprintf(stderr,"NIGHTFALL_ASYNC_TIMING frame=%lld submit_us=%.0f\n",
+                        ovrFrameId,(ovr_GetTimeInSeconds()-nightfallWorkerStart)*1e6);std::fflush(stderr);
+                }
                 TraceLoggingWriteStop(endFrame, "OVR_EndFrame");
             }
         }
@@ -1193,6 +1223,13 @@ namespace virtualdesktop_openxr {
         TraceLoggingWriteStart(waitToBeginFrame, "WaitForAsyncSubmissionIdle", TLArg(doRunningStart, "DoRunningStart"));
 
         std::unique_lock lock(m_asyncSubmissionMutex);
+
+        // An empty queue at thread creation is not a completed first vsync.
+        // Nightfall rejects stale poses, so wait for the worker's initial tick
+        // before using its predicted display time (also on running start).
+        if (m_useNightfallRuntime && !m_asyncSubmissionReady) {
+            m_asyncSubmissionCondVar.wait(lock, [&] { return m_asyncSubmissionReady; });
+        }
 
         bool wokeUpEarly = false;
         if (doRunningStart) {

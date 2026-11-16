@@ -797,6 +797,7 @@ namespace virtualdesktop_openxr {
         std::mutex m_asyncSubmissionMutex;
         std::condition_variable m_asyncSubmissionCondVar;
         std::vector<ovrLayer_Union> m_layersForAsyncSubmission;
+        bool m_asyncSubmissionReady{false};
         std::chrono::high_resolution_clock::time_point m_lastWaitToBeginFrameTime{};
 
         // Body tracking thread.

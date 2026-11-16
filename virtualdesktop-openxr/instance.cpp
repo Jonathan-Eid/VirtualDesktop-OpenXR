@@ -543,6 +543,10 @@ namespace virtualdesktop_openxr {
     }
 
     void OpenXrRuntime::initializeExtensionsTable() {
+        bool nightfallExtensions=false;
+#ifdef STANDALONE_RUNTIME
+        nightfallExtensions=GetEnvironmentVariableW(L"NIGHTFALL_OVR_BRIDGE",nullptr,0)>0;
+#endif
         {
             char path[_MAX_PATH];
             GetModuleFileNameA(nullptr, path, sizeof(path));
@@ -561,7 +565,9 @@ namespace virtualdesktop_openxr {
         m_extensionsTable.push_back( // OpenGL support.
             {XR_KHR_OPENGL_ENABLE_EXTENSION_NAME, XR_KHR_opengl_enable_SPEC_VERSION});
 
-        m_extensionsTable.push_back( // Depth buffer submission.
+        // Nightfall transports color projection only. Advertising depth makes
+        // Unity render/resolve a second full-sized stream we cannot consume.
+        if(!nightfallExtensions) m_extensionsTable.push_back( // Depth buffer submission.
             {XR_KHR_COMPOSITION_LAYER_DEPTH_EXTENSION_NAME, XR_KHR_composition_layer_depth_SPEC_VERSION});
 
         m_extensionsTable.push_back( // Qpc timestamp conversion.
@@ -585,7 +591,7 @@ namespace virtualdesktop_openxr {
         m_extensionsTable.push_back( // Unreal Engine 5 needs this.
             {XR_EXT_ACTIVE_ACTION_SET_PRIORITY_EXTENSION_NAME, XR_EXT_active_action_set_priority_SPEC_VERSION});
 
-        m_extensionsTable.push_back( // Audio GUID.
+        if(!nightfallExtensions) m_extensionsTable.push_back( // Audio GUID (no Nightfall OVR audio provider).
             {XR_OCULUS_AUDIO_DEVICE_GUID_EXTENSION_NAME, XR_OCULUS_audio_device_guid_SPEC_VERSION});
 
 #ifdef HAS_CYLINDER_LAYERS

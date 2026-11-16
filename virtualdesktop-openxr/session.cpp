@@ -345,7 +345,7 @@ namespace virtualdesktop_openxr {
             return XR_ERROR_SESSION_NOT_READY;
         }
 
-        m_useAsyncSubmission = !m_useNightfallRuntime && !m_isHeadless && !m_useApplicationDeviceForSubmission &&
+        m_useAsyncSubmission = !m_isHeadless && !m_useApplicationDeviceForSubmission &&
                                !getSetting("quirk_disable_async_submission").value_or(false);
         m_needStartAsyncSubmissionThread = m_useAsyncSubmission;
         // Creation of the submission threads is deferred to the first xrWaitFrame() to accomodate OpenComposite quirks.
@@ -523,7 +523,9 @@ namespace virtualdesktop_openxr {
         m_useMirrorWindow = getSetting("mirror_window").value_or(false);
 
         m_useRunningStart = !getSetting("quirk_disable_running_start").value_or(false);
-        m_useDeferredFrameWait = getSetting("defer_frame_wait").value_or(false);
+        // Let Nightfall's next app frame render while the previous frame is
+        // encoding. xrEndFrame still bounds submission to a single worker job.
+        m_useDeferredFrameWait = getSetting("defer_frame_wait").value_or(m_useNightfallRuntime);
 
         const bool shouldUseDepth =
 #ifndef IGNORE_DEPTH_SUBMISSION

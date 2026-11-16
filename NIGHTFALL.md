@@ -28,8 +28,11 @@ The implementation distinguishes stale tracking from a disconnected transport,
 waits for a fresh first vsync, converts eye/floor origins, and tags video with
 the submitted display time and projection poses. The device-pose API writes
 each requested output rather than repeatedly overwriting its first element.
-Submission to this backend is synchronous; Meteor's bounded packet transport
-remains asynchronous. A frame-time property preserves the submitted timestamp
+The runtime can submit layers on its existing asynchronous worker so the next
+application render overlaps QSV submission; the bridge's individual encode
+call remains synchronous. A first-tick readiness handshake prevents stale
+startup predictions, and Nightfall defaults to deferred frame waiting.
+Meteor's bounded packet transport remains asynchronous. A frame-time property preserves the submitted timestamp
 even for quad-only or empty frames. Native OpenXR grip/aim samples bypass the
 vendor raw Touch-origin offsets.
 
@@ -51,6 +54,27 @@ Nightfall's synchronous render/encode path now consumes a refresh tick that
 arrived during submission instead of always waiting for another one. The first
 frame still waits for a fresh tick; the normal Virtual Desktop path is unchanged.
 H.264, HEVC and decoded quad-pixel/eye-visibility smoke checks pass with this change.
+
+Open Brush's Unity device-detection instance is supported without consuming
+the tracking connection during unsupported audio queries or reinitializing
+the session on transition to graphical rendering. Nightfall does not advertise
+the unsupported depth and Oculus audio-device extensions.
+
+A changing stereo-frame regression found an OVRNull three-image-ring error:
+the writable index pointed backwards from the last committed image. Both
+encoded eyes were one frame behind the submitted pose. Returning the next
+index fixes the mismatch; 24/24 decoded frames in each eye passed with H.264
+and HEVC, including startup and wraparound. Overlay geometry, alpha and eye
+visibility checks also passed. The user confirmed that turning their head in
+Open Brush no longer produced the previous doubling artifact. Reproduce the
+image identity check using Nightfall's `test/smoke_windows_vdxr.py --frame-ids`;
+its decoded-pixel checks need Python `av`.
+
+At 1376×1440 per eye, short Open Brush samples reached about 70 projection
+copies per second, but longer samples fell to about 41–49. These are software
+copy counters, not physical display or motion-to-photon measurements. Sustained
+performance remains unfinished. A fresh 77.6-second Open Brush session averaged
+66.2 projection copies per second at the same settings.
 The current Nightfall client/protocol caps this backend at 72 Hz; stable 72 FPS,
 90 Hz, controller calibration/haptics, additional games, non-Intel plugins,
 32-bit builds and long sessions remain

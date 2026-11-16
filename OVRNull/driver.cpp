@@ -373,9 +373,12 @@ namespace {
             std::shared_lock lock(m_swapchainMutex);
             if (m_swapchains.count(swapchain)) {
                 Swapchain* swapchainObject = (Swapchain*)swapchain;
-                index = swapchainObject->lastCommittedIndex == 0
-                            ? (!swapchainObject->desc.StaticImage ? (k_SwapchainLength - 1) : 0)
-                            : (swapchainObject->lastCommittedIndex - 1);
+                // LibOVR returns the next writable image. The compositor reads
+                // lastCommittedIndex after CommitSwapchainImage advances it.
+                // Returning the previous image selects the wrong member of a
+                // three-image ring, pairing old pixels with this frame's pose.
+                const auto length = swapchainObject->desc.StaticImage ? 1 : k_SwapchainLength;
+                index = (swapchainObject->lastCommittedIndex + 1) % length;
             }
 
             TraceLoggingWriteStop(local, "NullDriver_GetSwapchainImageIndex", TLArg(index, "Index"));
