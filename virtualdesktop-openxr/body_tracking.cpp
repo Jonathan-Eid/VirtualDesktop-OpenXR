@@ -471,18 +471,18 @@ namespace virtualdesktop_openxr {
 
     bool OpenXrRuntime::isPhysicalTrackerActive(uint32_t index) const {
         external_trackers::State state;
+        if (index >= std::size(TrackerRoles) || m_isTrackerDisabled[index] || !m_physicalTrackers.read(state)) return false;
         LARGE_INTEGER now;
         QueryPerformanceCounter(&now);
-        return index < std::size(TrackerRoles) && !m_isTrackerDisabled[index] &&
-               m_physicalTrackers.read(state) && external_trackers::fresh(state.samples[index], now.QuadPart, state.frequency);
+        return external_trackers::fresh(state.samples[index], now.QuadPart, state.frequency);
     }
 
     XrSpaceLocationFlags OpenXrRuntime::getPhysicalTrackerPose(uint32_t index, XrTime time, XrPosef& pose) const {
         external_trackers::State state;
+        if (index >= std::size(TrackerRoles) || m_isTrackerDisabled[index] || !m_physicalTrackers.read(state)) return 0;
         LARGE_INTEGER now;
         QueryPerformanceCounter(&now);
-        if (index >= std::size(TrackerRoles) || m_isTrackerDisabled[index] || !m_physicalTrackers.read(state) ||
-            !external_trackers::fresh(state.samples[index], now.QuadPart, state.frequency)) return 0;
+        if (!external_trackers::fresh(state.samples[index], now.QuadPart, state.frequency)) return 0;
         const auto& sample = state.samples[index];
         const XrPosef stagePose = Pose::MakePose(
             XrQuaternionf{sample.orientation[0], sample.orientation[1], sample.orientation[2], sample.orientation[3]},

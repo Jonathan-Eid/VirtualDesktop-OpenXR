@@ -31,5 +31,6 @@ Invoke-Checked cmake @('--build',$providerBuild,'--config','Release')
 Invoke-Checked ctest @('--test-dir',$providerBuild,'-C','Release','--output-on-failure')
 # libsurvive loads its plugins relative to its library. Keep the directory intact.
 Copy-Item -LiteralPath "$providerBuild/Release/vdxr-survive.exe" -Destination "$surviveBuild/Release/vdxr-survive.exe"
+Copy-Item -LiteralPath "$providerBuild/Release/tracker-quest-probe.exe" -Destination "$surviveBuild/Release/tracker-quest-probe.exe"
 Write-Output "Provider: $surviveBuild/Release/vdxr-survive.exe"
 Write-Output "Runtime: $repo/bin/x64/Release/virtualdesktop-openxr.json"

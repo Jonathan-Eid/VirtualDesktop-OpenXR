@@ -65,7 +65,17 @@ namespace virtualdesktop_openxr {
         m_usePhysicalTrackers = std::string(trackerSource) == "libsurvive";
         if (m_usePhysicalTrackers) Log("Experimental physical tracker source: libsurvive\n");
         external_trackers::State physicalState;
-        if (m_usePhysicalTrackers && m_physicalTrackers.read(physicalState)) {
+        bool hasPhysicalState = false;
+        if (m_usePhysicalTrackers) {
+            // Only during runtime construction, allow a short bounded retry if
+            // the publisher is holding the IPC mutex. Pose reads never wait.
+            for (int attempt = 0; attempt < 16; ++attempt) {
+                if (m_physicalTrackers.read(physicalState)) { hasPhysicalState = true; break; }
+                Sleep(1);
+            }
+            if (!hasPhysicalState) Log("No physical tracker configuration; start provider before the application\n");
+        }
+        if (hasPhysicalState) {
             static_assert(std::size(TrackerRoles) == external_trackers::Roles.size());
             for (size_t i = 0; i < std::size(TrackerRoles); ++i) {
                 m_physicalTrackerRoles[i] = physicalState.samples[i].configured != 0;

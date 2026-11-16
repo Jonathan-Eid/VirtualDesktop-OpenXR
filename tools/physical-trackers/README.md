@@ -23,16 +23,17 @@ The build pins libsurvive to `44b1e2f0cb95e5697bc0b86f58fd8520a813b713` and uses
 2. Run the provider from its output directory:
 
    ```powershell
-   ./vdxr-survive.exe --probe --duration 60 -- --configfile C:/work/vdxr-tracker-build/lighthouse.json
+   ./vdxr-survive.exe --probe --duration 60 -- --configfile ./lighthouse.json
    ```
 
    Output records contain `hardware-serial x y z qx qy qz qw` in **raw libsurvive coordinates**, not Quest coordinates. A receiver being detected or Lighthouse OOTX messages appearing is not proof of valid 6DoF tracking. Require actual changing pose records and stable stationary results.
+   Use an explicit `./` relative configuration path on Windows: the pinned library treats a drive-letter path as a configuration name under its user configuration directory.
 3. If calibration fails, libsurvive can read a pre-existing SteamVR `lighthousedb.json` by appending `--steamvr-calibration "C:/.../Steam/config/lighthouse/lighthousedb.json"` after `--`. This imports stored calibration only and does not launch SteamVR. Independent self-calibration is the default. See [Monado's calibration notes](https://monado.freedesktop.org/libsurvive.html).
 
 ## Align the two tracking spaces
 
 The provider deliberately refuses to publish without an explicit room transform.
-Collect matching positions of the same physical point in raw libsurvive space and the **current Quest STAGE space**, in metres. Use at least three widely spaced, non-collinear points; more points and independent validation points are better. Account for the offset between the tracker origin and any controller origin used as a reference. Use stationary, simultaneous measurements. This prototype does not yet include an in-headset sample collector.
+Collect matching positions of the same physical point in raw libsurvive space and the **current Quest STAGE space**, in metres. Use at least three widely spaced, non-collinear points; more points and independent validation points are better. Account for the offset between the tracker origin and any controller origin used as a reference. Use stationary, simultaneous measurements.
 
 Create a CSV headed `sx,sy,sz,tx,ty,tz`, where `s` is raw libsurvive and `t` is Quest STAGE. With Python and numpy installed:
 
@@ -42,6 +43,17 @@ python -m unittest discover -s ./tools/physical-trackers -p test_alignment.py
 ```
 
 The tool fits a rigid transform, including the axis conversion, and writes `tx ty tz qx qy qz qw`. It rejects collinear input and a maximum sample residual above 3 cm by default. Its reported residuals describe sample agreement, **not independently verified tracking accuracy**. Check additional points and rotations. Recalibrate after Quest recentering, boundary changes, or base-station movement. Identity is not a valid shortcut unless measured and confirmed.
+
+An experimental alternative records a tracker rigidly attached to a Quest controller and estimates both room alignment and the unknown mounting offset. From the native provider output directory, with all other libsurvive processes stopped and a stable Lighthouse calibration saved as `./capture-lighthouse.json`:
+
+```powershell
+./tracker-quest-probe.exe C:/path/to/experimental/virtualdesktop-openxr.dll YOUR-HARDWARE-SERIAL left paired.csv
+python C:/path/to/repo/tools/physical-trackers/align_rigid_pair.py paired.csv stage.txt
+```
+
+The recorder opens a regular VR session for 60 seconds and submits black stereo projection layers. It requires fully tracked controller poses and fresh tracker samples. The devices must stay rigidly attached while moving and rotating around multiple axes. The solver rejects poorly excited or inconsistent data and evaluates reserved samples. Headless or empty-layer sessions initially reported zero controller bindings with both stock and modified VDXR; submitting a real projection layer enabled changing, fully tracked left-controller poses on the test PC. Paired calibration still requires hardware validation.
+
+For a short diagnostic, invoke `tracker-quest-probe.exe RUNTIME_DLL` (headless) or append `--visible` (regular session). Both now run the frame lifecycle; flags and identity poses alone do not prove working physical tracking.
 
 ## Publish and launch a test app
 
