@@ -460,9 +460,14 @@ namespace {
                                        "NullDriver_WaitForVsync_DirectModeComponent",
                                        TLArg(m_lastSignaledVsync, "LastSignaledVsync"));
 
-                // TODO: If the app fell behind, we shouldn't be waiting here.
-                const auto lastSignaledVsync = m_lastSignaledVsync;
+                // Nightfall submits/encodes synchronously. A tick that arrived
+                // during that work is already available; waiting for yet another
+                // tick needlessly locks slightly-over-budget apps to half rate.
+                // The first frame must still wait for a fresh tracking/vsync tick.
+                const auto lastSignaledVsync = m_nightfall && m_lastWaitedFrame >= 0
+                    ? m_lastWaitedVsync : m_lastSignaledVsync;
                 m_frameVsync.wait_for(lock, 100ms, [&]() { return m_lastSignaledVsync > lastSignaledVsync; });
+                m_lastWaitedVsync = m_lastSignaledVsync;
                 m_lastWaitedFrame = frameIndex;
 
                 TraceLoggingWriteStop(wait,
@@ -904,6 +909,7 @@ namespace {
 
         mutable std::mutex m_frameMutex;
         long long m_lastSignaledVsync{};
+        long long m_lastWaitedVsync{};
         // Frame zero must wait for the first fresh vsync too. Runtime/session
         // startup can take longer than the tracking sample's freshness window.
         long long m_lastWaitedFrame{-1};

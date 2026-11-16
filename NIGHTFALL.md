@@ -40,5 +40,19 @@ validator accepted every frame and acknowledged END; synthetic tracking checks
 verified the floor pose. Native QSV output was independently decoded and checked
 for color order, dimensions, no B pictures, and forced midpoint IDR.
 
-Physical Quest presentation, controller calibration/feel, long sessions,
-additional games, non-Intel plugins and 32-bit builds remain unvalidated.
+On November 16, 2026, a physical Quest 2 paired through Nightfall's normal
+Windows host flow, decoded the native OpenXR scene and tracked head movement.
+The user confirmed the picture was smoother after the pacing change below.
+A 3,600-frame GPU-rendered trial at 1840×1920 per eye drained every packet and
+acknowledged END. Delivery averaged about 45 FPS, versus about 35 FPS in the
+preceding 1,440-frame trial; these are single trials, not controlled benchmarks.
+
+Nightfall's synchronous render/encode path now consumes a refresh tick that
+arrived during submission instead of always waiting for another one. The first
+frame still waits for a fresh tick; the normal Virtual Desktop path is unchanged.
+H.264, HEVC and decoded quad-pixel/eye-visibility smoke checks pass with this change.
+The current Nightfall client/protocol caps this backend at 72 Hz; stable 72 FPS,
+90 Hz, controller calibration/haptics, additional games, non-Intel plugins,
+32-bit builds and long sessions remain
+unvalidated. Use Nightfall's GPU measurement wrapper for performance trials;
+the native probe's pixel-reference mode includes CPU rendering/readback/disk I/O.
