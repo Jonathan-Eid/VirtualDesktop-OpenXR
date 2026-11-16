@@ -6,6 +6,10 @@ This branch adds an opt-in physical tracker source to VDXR. The intended path is
 
 Virtual Desktop continues handling the Quest and video streaming. No OpenVR pose bridge is used. No SteamVR process is needed by the provider. This is an engineering prototype, **not validated full-body tracking**.
 
+## Calibration app
+
+The native VR interface lives in the separate [VDXR Space Calibrator repository](https://github.com/Jonathan-Eid/VDXR-Space-Calibrator). It provides regular controller/tracker calibration, validation, device models, and a local inspection API. This runtime fork retains the tracker transport and diagnostic tools. Continuous calibration is outside the app's scope. Physical model alignment and the complete calibration workflow still need headset validation; the project remains experimental.
+
 ## Build
 
 Requirements: Git, CMake, Visual Studio 2022 C++ desktop tools and Windows SDK.
