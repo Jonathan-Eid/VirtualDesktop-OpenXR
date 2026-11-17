@@ -982,7 +982,9 @@ namespace virtualdesktop_openxr {
                     // Per spec we must consistently pick one source. We pick the first one.
                     break;
                 } else if (getTrackerIndex(fullPath) >= 0) {
-                    state->isActive = isBound ? XR_TRUE : XR_FALSE;
+                    const int trackerIndex = getTrackerIndex(fullPath);
+                    const bool available = !m_useUltimateTrackers || isUltimateTrackerActive(trackerIndex);
+                    state->isActive = (isBound && available) ? XR_TRUE : XR_FALSE;
 
                     // Per spec we must consistently pick one source. We pick the first one.
                     break;

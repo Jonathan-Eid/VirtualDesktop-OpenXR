@@ -673,7 +673,8 @@ namespace virtualdesktop_openxr {
                         // Per spec we must consistently pick one source. We pick the first one.
                         break;
                     } else if (trackerIndex >= 0) {
-                        result = getBodyJointPose(TrackerRoles[trackerIndex].joint, time, pose);
+                        result = m_useUltimateTrackers ? getUltimateTrackerPose(trackerIndex, time, pose)
+                                                      : getBodyJointPose(TrackerRoles[trackerIndex].joint, time, pose);
 
                         // Per spec we must consistently pick one source. We pick the first one.
                         break;

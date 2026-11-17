@@ -372,7 +372,7 @@ namespace virtualdesktop_openxr {
                           TLArg(pathCapacityInput, "PathCapacityInput"));
 
         uint32_t trackersCount = 0;
-        if (m_supportsBodyTracking && m_emulateViveTrackers) {
+        if (m_useUltimateTrackers || (m_supportsBodyTracking && m_emulateViveTrackers)) {
             for (uint32_t i = 0; i < std::size(TrackerRoles); i++) {
                 if (!isTrackerEnabled(i)) {
                     continue;
@@ -421,7 +421,7 @@ namespace virtualdesktop_openxr {
     }
 
     int OpenXrRuntime::getTrackerIndex(const std::string& path) const {
-        if (!m_supportsBodyTracking || !m_emulateViveTrackers) {
+        if (!m_useUltimateTrackers && (!m_supportsBodyTracking || !m_emulateViveTrackers)) {
             return -1;
         }
 
@@ -454,6 +454,12 @@ namespace virtualdesktop_openxr {
     }
 
     bool OpenXrRuntime::isTrackerEnabled(uint32_t index) const {
+        if (index >= std::size(TrackerRoles)) {
+            return false;
+        }
+        if (m_useUltimateTrackers) {
+            return !m_isTrackerDisabled[index] && m_ultimateTrackerRoles[index];
+        }
         // Ignore lower body joints when not supported.
         if (!m_supportsFullBodyTracking && TrackerRoles[index].joint >= XR_BODY_JOINT_COUNT_FB) {
             return false;
@@ -463,6 +469,44 @@ namespace virtualdesktop_openxr {
         }
 
         return true;
+    }
+
+    bool OpenXrRuntime::isUltimateTrackerActive(uint32_t index) const {
+        ultimate_tracker_ipc::State state;
+        if (!m_useUltimateTrackers || index >= std::size(TrackerRoles) || !isTrackerEnabled(index) ||
+            !m_ultimateTrackers.read(state)) {
+            return false;
+        }
+        LARGE_INTEGER now{};
+        if (!QueryPerformanceCounter(&now)) return false;
+        return ultimate_tracker_ipc::fresh(state.samples[index], now.QuadPart, state.frequency);
+    }
+
+    XrSpaceLocationFlags OpenXrRuntime::getUltimateTrackerPose(uint32_t index, XrTime time, XrPosef& pose) const {
+        ultimate_tracker_ipc::State state;
+        if (!m_useUltimateTrackers || index >= std::size(TrackerRoles) || !isTrackerEnabled(index) ||
+            !m_ultimateTrackers.read(state)) {
+            return 0;
+        }
+        LARGE_INTEGER now{};
+        if (!QueryPerformanceCounter(&now)) return 0;
+        if (!ultimate_tracker_ipc::fresh(state.samples[index], now.QuadPart, state.frequency)) return 0;
+
+        const auto& sample = state.samples[index];
+        const XrPosef stagePose = Pose::MakePose(
+            XrQuaternionf{sample.orientation[0], sample.orientation[1], sample.orientation[2], sample.orientation[3]},
+            XrVector3f{sample.position[0], sample.position[1], sample.position[2]});
+        Space stage{};
+        stage.referenceType = XR_REFERENCE_SPACE_TYPE_STAGE;
+        stage.poseInSpace = Pose::Identity();
+        XrPosef stageToOrigin{};
+        const auto referenceFlags = locateSpaceToOrigin(stage, time, stageToOrigin, nullptr, nullptr);
+        pose = Pose::Multiply(stagePose, stageToOrigin);
+
+        // The source contract has no independently verified optical-confidence
+        // bit. Report validity inherited from the reference-space conversion,
+        // never TRACKED bits or velocities inferred from sample freshness.
+        return referenceFlags & (XR_SPACE_LOCATION_POSITION_VALID_BIT | XR_SPACE_LOCATION_ORIENTATION_VALID_BIT);
     }
 
     XrSpaceLocationFlags OpenXrRuntime::getBodyJointPose(XrFullBodyJointMETA joint, XrTime time, XrPosef& pose) const {

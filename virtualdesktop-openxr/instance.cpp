@@ -64,6 +64,25 @@ namespace virtualdesktop_openxr {
             m_isTrackerDisabled[i] = getSetting(TrackerRoles[i].role + "_tracker_disabled").value_or(false);
         }
 
+        char trackerSource[32]{};
+        const DWORD trackerSourceLength = GetEnvironmentVariableA("VDXR_TRACKER_SOURCE", trackerSource, sizeof(trackerSource));
+        m_useUltimateTrackers = trackerSourceLength > 0 && trackerSourceLength < sizeof(trackerSource) &&
+                                std::string_view(trackerSource, trackerSourceLength) == "ultimate";
+        if (m_useUltimateTrackers) {
+            static_assert(std::size(TrackerRoles) == ultimate_tracker_ipc::Roles.size());
+            ultimate_tracker_ipc::State state;
+            if (m_ultimateTrackers.read(state)) {
+                for (size_t i = 0; i < std::size(TrackerRoles); ++i) {
+                    m_ultimateTrackerRoles[i] = state.samples[i].configured != 0;
+                }
+                Log("Experimental Ultimate tracker source enabled (%u configured roles)\n",
+                    static_cast<unsigned>(std::count(std::begin(m_ultimateTrackerRoles),
+                                                     std::end(m_ultimateTrackerRoles), true)));
+            } else {
+                Log("Ultimate tracker source requested but no valid tracker channel is ready; start provider before app\n");
+            }
+        }
+
         // Watch for changes in the registry.
         try {
             wil::unique_hkey keyToWatch;
