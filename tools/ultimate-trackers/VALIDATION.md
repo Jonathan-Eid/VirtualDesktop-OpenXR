@@ -44,6 +44,17 @@ map and does not modify pairing or firmware.
 
 ## Remaining acceptance
 
+### First Quest alignment attempt
+
+The Nightfall-hosted calibration app received Quest 2 head/right Touch controller
+poses and fresh Ultimate input on November 17, 2026. A rigid-pair movement attempt
+recorded 250 samples over about 14 seconds. The regular solver rejected the fit:
+reserved position RMS 0.141961 m and maximum angle residual 93.2535 degrees. An
+alternate hand-eye diagnostic also rejected rotational consistency. No profile
+was accepted and no calibrated tracker service was enabled. The cause remains
+under investigation; receiving fresh reports alone does not validate their pose
+convention or acquisition timing. Captures stay private and uncommitted.
+
 - Verify physical axes, origin/mounting orientation and scale with independent
   movement measurements.
 - Align Ultimate map space with the current Quest STAGE space in the calibration
