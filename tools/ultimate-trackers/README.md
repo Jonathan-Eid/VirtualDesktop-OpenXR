@@ -55,7 +55,44 @@ nonblocking contention and abandoned-mutex recovery. The runtime test loads the
 actual DLL and enumerates synthetic waist/ankle role paths without a headset.
 It does not exercise physical tracking or in-game pose location. On November
 17, 2026, the full modified runtime built in Release/x64, both offline runtime
-tests passed, and the probe's fixture test passed. Hardware remains unverified.
+tests passed, and the probe's fixture test passed. Those tests alone do not
+establish hardware behavior.
+
+Subsequent physical checks detected the Ultimate dongle and decoded stationary
+and moving pose packets on Windows with SteamVR absent and HTC's tracker server
+running. The native passive source also passed a bounded live smoke test. See
+[VALIDATION.md](VALIDATION.md) for the scope and remaining acceptance work.
+
+## Native passive source
+
+`ultimate_hid_source.h` exposes `ultimate_hid::Source`: `start`, `snapshot`,
+`error` and `stop`. CMake builds the `ultimate-hid-source` static library and a
+bounded five-second `ultimate-source-probe` diagnostic. The source reads only
+Ultimate dongle HID interfaces and sends no feature/output reports. HTC's
+existing Windows tracker server currently handles initialization and room-map
+management; this code does not replace it.
+
+The source returns raw-space position and normalized XYZW quaternions, opaque
+six-byte radio identifiers, packet counters, raw status flags and report-arrival
+QPC timestamps. It deduplicates by tracker identifier, discards unsupported/lost
+states, clears loss caches and expires missing updates after 100 ms. Report
+receipt time is not a verified sensor timestamp. No hardware tracking-confidence,
+physical-axis or latency claim follows from the decoder.
+
+The separate calibration app can link this library with
+`VDXR_ULTIMATE_SOURCE_DIR` pointing to this tools directory. Only a measured and
+validated calibration may transform these raw samples into the runtime's Quest
+STAGE channel.
+
+An offline analyzer is available for locally recorded files:
+
+```powershell
+python tools/ultimate-trackers/analyze_capture.py build/ultimate-raw.jsonl --max-poses 0
+python tools/ultimate-trackers/test_analyze_capture.py -v
+```
+
+It suppresses ACK payload contents and keeps raw status/auxiliary fields separate
+from any verified tracking interpretation. Do not commit capture files or maps.
 
 The initial probe does not pair devices, rebuild maps, write firmware, change
 Wi-Fi configuration, install drivers or change the active OpenXR runtime.
